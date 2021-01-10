@@ -39,7 +39,6 @@ chmod 1777 /tmp
 AIRFLOW_SOURCES=$(cd "${IN_CONTAINER_DIR}/../.." || exit 1; pwd)
 
 PYTHON_MAJOR_MINOR_VERSION=${PYTHON_MAJOR_MINOR_VERSION:=3.6}
-BACKEND=${BACKEND:=sqlite}
 
 export AIRFLOW_HOME=${AIRFLOW_HOME:=${HOME}}
 
@@ -63,6 +62,7 @@ if [[ ${GITHUB_ACTIONS:="false"} == "false" ]]; then
     # Create links for useful CLI tools
     # shellcheck source=scripts/in_container/run_cli_tool.sh
     source <(bash scripts/in_container/run_cli_tool.sh)
+    ln -s '/opt/airflow/scripts/in_container/run_tmux.sh' /usr/bin/run_tmux
 fi
 
 if [[ ${AIRFLOW_VERSION} == *1.10* || ${INSTALL_AIRFLOW_VERSION} == *1.10* ]]; then
@@ -72,16 +72,16 @@ else
 fi
 
 if [[ -z ${INSTALL_AIRFLOW_VERSION=} ]]; then
+    export PYTHONPATH=${AIRFLOW_SOURCES}
     echo
     echo "Using already installed airflow version"
     echo
-    "${AIRFLOW_SOURCES}/airflow/www/compile_assets_if_needed.sh"
+    "${AIRFLOW_SOURCES}/airflow/www/ask_for_recompile_assets_if_needed.sh"
     # Cleanup the logs, tmp when entering the environment
     sudo rm -rf "${AIRFLOW_SOURCES}"/logs/*
     sudo rm -rf "${AIRFLOW_SOURCES}"/tmp/*
     mkdir -p "${AIRFLOW_SOURCES}"/logs/
     mkdir -p "${AIRFLOW_SOURCES}"/tmp/
-    export PYTHONPATH=${AIRFLOW_SOURCES}
 elif [[ ${INSTALL_AIRFLOW_VERSION} == "none"  ]]; then
     echo
     echo "Skip installing airflow - only install wheel/tar.gz packages that are present locally"
@@ -115,7 +115,7 @@ if [[ ${INSTALL_PACKAGES_FROM_DIST=} == "true" ]]; then
     fi
     if [[ ${PACKAGE_FORMAT} == "both" ]]; then
         echo
-        echo "${COLOR_RED_ERROR}You can only specify 'wheel' or 'sdist' as PACKAGE_FORMAT not 'both'${COLOR_RESET}"
+        echo "${COLOR_RED}ERROR:You can only specify 'wheel' or 'sdist' as PACKAGE_FORMAT not 'both'${COLOR_RESET}"
         echo
         exit 1
     fi
@@ -196,10 +196,14 @@ ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null
 # shellcheck source=scripts/in_container/run_init_script.sh
 . "${IN_CONTAINER_DIR}/run_init_script.sh"
 
-# shellcheck source=scripts/in_container/run_tmux.sh
-. "${IN_CONTAINER_DIR}/run_tmux.sh"
-
 cd "${AIRFLOW_SOURCES}"
+
+if [[ ${START_AIRFLOW:="false"} == "true" ]]; then
+    export AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS=${LOAD_DEFAULT_CONNECTIONS}
+    export AIRFLOW__CORE__LOAD_EXAMPLES=${LOAD_EXAMPLES}
+    # shellcheck source=scripts/in_container/run_tmux.sh
+    exec /bin/bash "${IN_CONTAINER_DIR}/run_tmux.sh"
+fi
 
 set +u
 # If we do not want to run tests, we simply drop into bash
@@ -324,7 +328,7 @@ else
         SELECTED_TESTS=("${ALL_TESTS[@]}")
     else
         echo
-        echo  "${COLOR_RED_ERROR} Wrong test type ${TEST_TYPE}  ${COLOR_RESET}"
+        echo  "${COLOR_RED}ERROR: Wrong test type ${TEST_TYPE}  ${COLOR_RESET}"
         echo
         exit 1
     fi
